@@ -42,6 +42,10 @@ pnpm start
 [자체 호스팅](https://nextjs.org/docs/app/guides/self-hosting) 안내를 확인했다.
 커스텀 서버와 standalone 배포를 혼용하지 않는다.
 
+로컬 화면 확인 시 `LOCAL_ADMIN_AUTH_DISABLED=1`로 관리자 로그인만 생략할 수 있다.
+`pnpm dev` 및 localhost/127.0.0.1 HTTP origin의 3022 포트에서만 허용하며 운영 시작은 거부한다.
+쓰기 요청의 Origin/CSRF 검증, 단말 토큰 인증, 웹훅 서명 검증은 유지한다.
+
 환경 예시는 [.env.example](.env.example). 비밀은 환경변수 `ADMIN_PASSWORD`, `DEVICE_SIGNING_KEY`,
 `GITHUB_WEBHOOK_SECRET`, 선택적인 읽기 전용 `GITHUB_TOKEN`으로 받는다. 실제 비밀은
 `~/.samlab-central/credentials.local`, `.dev`, `.prod` 중 명시적으로 선택한 파일 한 곳에

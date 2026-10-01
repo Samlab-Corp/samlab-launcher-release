@@ -8,7 +8,7 @@ import { Store, Conflict } from '../src/core/store';
 import { Github, assetUrl } from '../src/core/github';
 import { Manager } from '../src/core/manager';
 import { Api } from '../src/core/api';
-import { signDevice, type Config } from '../src/core/auth';
+import { signDevice, config, type Config } from '../src/core/auth';
 import { type Release, type Service, services } from '../src/core/model';
 import { startCollector } from '../src/core/collector';
 const bytes = Buffer.from('verified-installer');
@@ -134,4 +134,23 @@ test('interrupted metadata transfer does not silently invalidate a working targe
     await assert.rejects(f.manager.reconcile());
     assert.ok(f.store.snapshot.defaults['letmeup-kiosk-v2:stable']); assert.equal((await f.api.handle(target())).status, 200);
   } finally { await f.cleanup(); }
+});
+test('local admin bypass leaves CSRF, device and webhook authentication enforced', async () => {
+  const f = await fixture(); try {
+    const api = new Api(f.manager, { ...c, localAdminAuthDisabled: true });
+    assert.equal((await api.handle(new Request(c.origin + '/api/admin/state'))).status, 200);
+    assert.equal((await api.handle(new Request(c.origin + '/api/admin/select', { method: 'POST', body: '{}' }))).status, 403);
+    assert.equal((await api.handle(new Request(c.origin + '/api/target?programId=letmeup-kiosk-v2'))).status, 401);
+    assert.equal((await api.handle(new Request(c.origin + '/api/webhook', { method: 'POST', body: '{}' }))).status, 401);
+  } finally { await f.cleanup(); }
+});
+test('admin bypass cannot be configured for production or a remote origin', () => {
+  const names = ['DATA_DIR', 'APP_ORIGIN', 'ADMIN_USER', 'ADMIN_PASSWORD', 'DEVICE_SIGNING_KEY', 'GITHUB_WEBHOOK_SECRET', 'LOCAL_ADMIN_AUTH_DISABLED', 'NODE_ENV'];
+  const saved = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  try {
+    Object.assign(process.env, { DATA_DIR: os.tmpdir(), APP_ORIGIN: c.origin, ADMIN_USER: c.adminUser, ADMIN_PASSWORD: c.adminPassword, DEVICE_SIGNING_KEY: c.deviceKey, GITHUB_WEBHOOK_SECRET: c.webhookSecret, LOCAL_ADMIN_AUTH_DISABLED: '1', NODE_ENV: 'development' });
+    assert.equal(config(true).localAdminAuthDisabled, true); assert.throws(() => config(false), /local development/);
+    Object.assign(process.env, { NODE_ENV: 'production' }); assert.throws(() => config(true), /local development/);
+    Object.assign(process.env, { NODE_ENV: 'development', APP_ORIGIN: 'https://central.example.invalid' }); assert.throws(() => config(true), /local development/);
+  } finally { for (const name of names) { if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]; } }
 });

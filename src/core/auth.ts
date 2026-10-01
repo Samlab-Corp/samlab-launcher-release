@@ -1,19 +1,21 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { channel, identifier, serviceId } from './model';
-export interface Config { dataDir: string; origin: string; adminUser: string; adminPassword: string; deviceKey: string; webhookSecret: string; githubToken?: string }
-export function config(): Config {
+export interface Config { dataDir: string; origin: string; adminUser: string; adminPassword: string; deviceKey: string; webhookSecret: string; githubToken?: string; localAdminAuthDisabled?: boolean }
+export function config(development = false): Config {
   const required = (name: string) => { const value = process.env[name]; if (!value || value.startsWith('REPLACE_')) throw new Error(`Missing ${name}`); return value; };
   const c = { dataDir: required('DATA_DIR'), origin: required('APP_ORIGIN'), adminUser: required('ADMIN_USER'), adminPassword: required('ADMIN_PASSWORD'), deviceKey: required('DEVICE_SIGNING_KEY'), webhookSecret: required('GITHUB_WEBHOOK_SECRET'), githubToken: process.env.GITHUB_TOKEN };
+  const localAdminAuthDisabled = process.env.LOCAL_ADMIN_AUTH_DISABLED === '1';
+  if (localAdminAuthDisabled && (!development || process.env.NODE_ENV === 'production' || !['http://localhost:3022', 'http://127.0.0.1:3022'].includes(c.origin))) throw new Error('Authentication bypass requires local development on port 3022');
   if ([c.adminPassword, c.deviceKey, c.webhookSecret].some(s => s.length < 32)) throw new Error('Secrets require at least 32 characters');
   if (!identifier.safeParse(c.adminUser).success) throw new Error('Invalid ADMIN_USER');
   const url = new URL(c.origin); if (url.origin !== c.origin || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Invalid APP_ORIGIN');
-  return c;
+  return { ...c, localAdminAuthDisabled };
 }
 export function equal(a: string, b: string) { return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest()); }
 export function admin(request: Request, c: Config, write = false) {
   const expected = 'Basic ' + Buffer.from(`${c.adminUser}:${c.adminPassword}`).toString('base64');
-  if (!equal(request.headers.get('authorization') ?? '', expected)) throw new HttpError(401, 'Authentication required');
+  if (!c.localAdminAuthDisabled && !equal(request.headers.get('authorization') ?? '', expected)) throw new HttpError(401, 'Authentication required');
   if (write && (request.headers.get('origin') !== c.origin || request.headers.get('x-csrf-protection') !== '1' || !request.headers.get('content-type')?.startsWith('application/json'))) throw new HttpError(403, 'Origin/CSRF rejected');
 }
 const claimsSchema = z.object({ deviceId: identifier, service: serviceId, channel, exp: z.number().int().positive() }).strict();
