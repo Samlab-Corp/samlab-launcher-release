@@ -123,3 +123,15 @@ test('upstream changed artifacts invalidate verification and selected target', a
     await f.manager.reconcile(); assert.equal(f.store.snapshot.defaults['letmeup-kiosk-v2:stable'], undefined); assert.equal((await f.api.handle(target())).status, 404);
   } finally { await f.cleanup(); }
 });
+test('interrupted metadata transfer does not silently invalidate a working target', async () => {
+  const f = await fixture(); try {
+    await seed(f.store); const r = release();
+    const gh = new Github(async url => {
+      if (String(url).startsWith('https://api.github.com/')) return Response.json([{ id: 1, tag_name: r.tag, draft: false, prerelease: false, published_at: r.publishedAt, assets: [{ name: 'latest.yml', size: 200, browser_download_url: assetUrl(services[r.service].repo, r.tag, 'latest.yml') }] }]);
+      return new Response(new ReadableStream({ start(controller) { controller.error(new Error('Disconnected')); } }));
+    });
+    f.manager.github.list = service => gh.list(service);
+    await assert.rejects(f.manager.reconcile());
+    assert.ok(f.store.snapshot.defaults['letmeup-kiosk-v2:stable']); assert.equal((await f.api.handle(target())).status, 200);
+  } finally { await f.cleanup(); }
+});

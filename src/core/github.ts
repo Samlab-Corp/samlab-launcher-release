@@ -14,7 +14,8 @@ async function boundedText(response: Response, limit: number) {
   const reader = response.body?.getReader(); if (!reader) throw new Error('Empty body');
   const chunks: Uint8Array[] = []; let size = 0;
   try { for (;;) { const r = await reader.read(); if (r.done) break; size += r.value.length; if (size > limit) throw new Error('Response too large'); chunks.push(r.value); } }
-  finally { await reader.cancel(); }
+  catch (e) { if (e instanceof Error && e.message === 'Response too large') throw e; throw new SourceUnavailable('Response stream interrupted'); }
+  finally { await reader.cancel().catch(() => {}); }
   return Buffer.concat(chunks).toString('utf8');
 }
 export class Github {
